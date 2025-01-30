@@ -97,8 +97,8 @@ class GrowingTriangleSampler(Sampler):
         env = args[0]
         # Add your custom line here
         self.iteration_counter += 1
-        # increment the triangle counter every n_iterations/height iterations
-        if self.iteration_counter % ((self.n_iterations // env.height)) == 0:
+        # increment the triangle counter every time the iteration counter is divisible by 
+        if self.iteration_counter % ((self.n_iterations // ((2*env.height)-1))) == 0:
             self.triangle_counter += 1
         Trajectories = super().sample_trajectories(*args, **kwargs)
         return Trajectories
