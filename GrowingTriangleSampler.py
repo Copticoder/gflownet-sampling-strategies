@@ -68,10 +68,7 @@ class GrowingTriangleSampler(Sampler):
             states, estimator_output, **policy_kwargs
         )
         # mask exit actions at states that are not at height-1
-        # increment the triangle counter every n_iterations/height iterations
-        if self.iteration_counter % (self.n_iterations // env.height) == 0:
-            self.triangle_counter += 1
-
+            
         condition = (states.tensor < env.height - self.triangle_counter).any(-1)
         logits = dist.logits
         logits[..., -1][condition] = -float("inf")
@@ -96,6 +93,12 @@ class GrowingTriangleSampler(Sampler):
         return actions, log_probs, estimator_output
 
     def sample_trajectories(self, *args, **kwargs):
+        # get env from args
+        env = args[0]
         # Add your custom line here
         self.iteration_counter += 1
-        return super().sample_trajectories(*args, **kwargs)
+        # increment the triangle counter every n_iterations/height iterations
+        if self.iteration_counter % ((self.n_iterations // env.height)) == 0:
+            self.triangle_counter += 1
+        Trajectories = super().sample_trajectories(*args, **kwargs)
+        return Trajectories
