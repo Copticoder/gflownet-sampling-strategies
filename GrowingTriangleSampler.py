@@ -67,7 +67,7 @@ class GrowingTriangleSampler(Sampler):
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )
-        # mask exit actions at states that are not at height-1
+        # mask exit actions at states that are not at height-triangle counter
             
         condition = (states.tensor < env.height - self.triangle_counter).any(-1)
         logits = dist.logits
