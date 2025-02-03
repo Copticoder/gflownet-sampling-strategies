@@ -11,12 +11,13 @@ from gfn.utils.handlers import (
 )
 
 class GrowingTriangleSampler(Sampler):
-    def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int):
+    def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int, growth_parameter: int = 0.1):
         super().__init__(estimator)
         # n_iterations used for growing triangle
         self.n_iterations = n_iterations
         self.iteration_counter = 0
         self.triangle_counter = 1
+        self.growth_parameter = growth_parameter
     def sample_actions(
         self,
         env: Env,
@@ -98,7 +99,8 @@ class GrowingTriangleSampler(Sampler):
         # Add your custom line here
         self.iteration_counter += 1
         # increment the triangle counter every time the iteration counter is divisible by 
-        if self.iteration_counter % ((self.n_iterations // ((2*env.height)-1))) == 0:
+        if self.iteration_counter % (((self.n_iterations*self.growth_parameter) // ((2*env.height)-1))) == 0:
             self.triangle_counter += 1
+            print(f"Triangle counter: {self.triangle_counter}")
         Trajectories = super().sample_trajectories(*args, **kwargs)
         return Trajectories

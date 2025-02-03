@@ -43,7 +43,7 @@ def main(args):  # noqa: C901
 
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_{args.loss}_backwards")
+        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_{args.loss}_backwards_growth_parameter_{args.growth_parameter}")
         wandb.config.update(args)
 
     # 1. Create the environment
@@ -236,7 +236,7 @@ def main(args):  # noqa: C901
             n_iterations=n_iterations,
         )
     else:
-        growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations)
+        growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
 
     for iteration in trange(n_iterations):
         trajectories = growing_triangle_sampler.sample_trajectories(
@@ -335,7 +335,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--subTB_lambda", type=float, default=0.9, help="Lambda parameter for SubTB"
     )
-
+    parser.add_argument("--growth_parameter", type=float, default=0.1, help="Triangle growth parameter")
     parser.add_argument(
         "--tabular",
         action="store_true",
