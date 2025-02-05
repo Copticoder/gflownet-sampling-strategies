@@ -96,11 +96,9 @@ class GrowingTriangleSampler(Sampler):
     def sample_trajectories(self, *args, **kwargs):
         # get env from args
         env = args[0]
-        # Add your custom line here
         self.iteration_counter += 1
         # increment the triangle counter every time the iteration counter is divisible by 
         if self.iteration_counter % (((self.n_iterations*self.growth_parameter) // ((2*env.height)-1))) == 0:
             self.triangle_counter += 1
-            print(f"Triangle counter: {self.triangle_counter}")
         Trajectories = super().sample_trajectories(*args, **kwargs)
         return Trajectories
