@@ -16,7 +16,7 @@ class GrowingTriangleSampler(Sampler):
         # n_iterations used for growing triangle
         self.n_iterations = n_iterations
         self.iteration_counter = 0
-        self.triangle_counter = 1
+        self.triangle_counter = 2
         self.growth_parameter = growth_parameter
     def sample_actions(
         self,
@@ -96,9 +96,10 @@ class GrowingTriangleSampler(Sampler):
     def sample_trajectories(self, *args, **kwargs):
         # get env from args
         env = args[0]
-        self.iteration_counter += 1
-        # increment the triangle counter every time the iteration counter is divisible by 
-        if self.iteration_counter % (((self.n_iterations*self.growth_parameter) // ((2*env.height)-1))) == 0:
-            self.triangle_counter += 1
+        # increment the triangle counter 
+        self.triangle_counter += 1 
+        if self.iteration_counter % ((2 * env.height) - 2) == 0:
+            # reset triangle counter every time we reach the end of a triangle
+            self.triangle_counter = 1
         Trajectories = super().sample_trajectories(*args, **kwargs)
         return Trajectories

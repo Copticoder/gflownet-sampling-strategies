@@ -31,7 +31,7 @@ from gfn.modules import DiscretePolicyEstimator, ScalarEstimator
 from gfn.utils.common import set_seed
 from gfn.utils.modules import MLP, DiscreteUniform, Tabular
 from gfn.utils.training import validate
-
+from topological_flow_matching import TopologicalFMGFlowNet
 from GrowingTriangleSampler import GrowingTriangleSampler
 DEFAULT_SEED = 4444
 
@@ -43,7 +43,7 @@ def main(args):  # noqa: C901
 
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_{args.loss}_backwards_growth_parameter_{args.growth_parameter}")
+        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_{args.loss}_backwards_{args.growth_parameter}_topological")
         wandb.config.update(args)
 
     # 1. Create the environment
@@ -74,7 +74,7 @@ def main(args):  # noqa: C901
             n_actions=env.n_actions,
             preprocessor=env.preprocessor,
         )
-        gflownet = FMGFlowNet(estimator)
+        gflownet = TopologicalFMGFlowNet(estimator)
     else:
         pb_module = None
         # We need a DiscretePFEstimator and a DiscretePBEstimator
@@ -250,7 +250,7 @@ def main(args):  # noqa: C901
             with torch.no_grad():
                 replay_buffer.add(training_samples)
                 training_objects = replay_buffer.sample(n_trajectories=args.batch_size)
-        else:
+        else:   
             training_objects = training_samples
 
         optimizer.zero_grad()
@@ -396,7 +396,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_project",
         type=str,
-        default="",
+        default="gfn-ter-fm-test",
         help="Name of the wandb project. If empty, don't use wandb",
     )
 
