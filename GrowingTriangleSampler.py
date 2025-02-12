@@ -64,17 +64,17 @@ class GrowingTriangleSampler(Sampler):
         else:
             with no_conditioning_exception_handler("estimator", self.estimator):
                 estimator_output = self.estimator(states)
-        # disable exit action for non-anti-diagonal states  
-        non_exit_condition = (states.tensor < env.height-self.triangle_counter).any(dim=-1)
+        # disable exit action for non-anti-diagonal states, meaning sum of coordinates is not equal to 2*(env.height-1) - self.triangle_counter
+        non_exit_condition = (states.tensor < env.height - self.triangle_counter).any(-1)
         states.forward_masks[non_exit_condition,-1] = False
-        # allow exit action only for anti-diagonal states
-        exit_condition = (states.tensor >= env.height-self.triangle_counter).any(dim=-1)
-        states.forward_masks[exit_condition,:] = False
-        states.forward_masks[exit_condition,-1] = True
-
+        # enable exit action for all other states 
+        exit_condition = ~non_exit_condition
+        # disable all actions for current anti-diagonal states
+        states.forward_masks[exit_condition,:-1] = False
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )
+        
         with torch.no_grad():
             actions = dist.sample()
 
@@ -95,13 +95,10 @@ class GrowingTriangleSampler(Sampler):
 
     def sample_trajectories(self, *args, **kwargs):
         # get env from args
-        env = args[0]
-        self.iteration_counter += 1
-        # increment the triangle counter every time the iteration counter is divisible by 
-        if self.iteration_counter % (((self.n_iterations*0.01) // ((2*env.height)-1))) == 0:
-            if self.triangle_counter == env.height-1:
-                self.triangle_counter = 1
-            else:
-                self.triangle_counter = min(self.triangle_counter + 1, env.height-1)
         Trajectories = super().sample_trajectories(*args, **kwargs)
+        env = args[0]
+        self.triangle_counter += 1
+        # increment the triangle counter every time the iteration counter is divisible by 
+        if self.triangle_counter == env.height-1:
+            self.triangle_counter = 1
         return Trajectories
