@@ -10,7 +10,9 @@ And run one of the following to reproduce some of the results in
 [Learning GFlowNets from partial episodes for improved convergence and stability](https://arxiv.org/abs/2209.12782)
 python train_hypergrid.py --ndim {2, 4} --height 12 --R0 {1e-3, 1e-4} --tied --loss {TB, DB, SubTB}
 """
-
+# TODO:
+# 1 - change the cloning behavior in DiscreteEnv to also clone forward and backward masks to avoid same memory address
+# 2 - epsilon greedy action selection
 from argparse import ArgumentParser
 
 import torch
@@ -26,6 +28,7 @@ from gfn.gflownet import (
     SubTBGFlowNet,
     TBGFlowNet,
 )
+from visualize_grid  import plotGrid
 from gfn.gym import HyperGrid
 from gfn.modules import DiscretePolicyEstimator, ScalarEstimator
 from gfn.utils.common import set_seed
@@ -237,13 +240,22 @@ def main(args):  # noqa: C901
         )
     else:
         growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
-
+    
+    # epsilon decay 
+    def epsilon_decay(epsilon, iteration, n_iterations):
+        
+        return max(epsilon - (1.0 - 0.1) * iteration / n_iterations, 0.0)
+    
+    epsilon = args.epsilon
     for iteration in trange(n_iterations):
+        if args.epsilon:
+            epsilon = epsilon_decay(epsilon, iteration, n_iterations)
         trajectories = growing_triangle_sampler.sample_trajectories(
             env,
             n=args.batch_size,
             save_logprobs=args.replay_buffer_size == 0,
             save_estimator_outputs=False,
+            epsilon=epsilon,
         )
         training_samples = gflownet.to_training_samples(trajectories)
         if replay_buffer is not None:
@@ -272,6 +284,9 @@ def main(args):  # noqa: C901
                 args.validation_samples,
                 visited_terminating_states,
             )
+            plotGrid(gflownet, env)
+            print(growing_triangle_sampler.triangle_counter)
+            print(trajectories)
             if use_wandb:
                 wandb.log(validation_info, step=iteration)
             to_log.update(validation_info)
@@ -396,10 +411,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_project",
         type=str,
-        default="gfn-ter-fm-test",
+        default="",
         help="Name of the wandb project. If empty, don't use wandb",
     )
-
+    parser.add_argument(
+        "--epsilon",
+        type= float, 
+        default=1.0, 
+        help="Use epsilon-greedy action selection. Defaults to 1.0 and decreases linearly to 0.1",
+    )
     args = parser.parse_args()
 
     print(main(args))

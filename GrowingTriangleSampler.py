@@ -16,7 +16,7 @@ class GrowingTriangleSampler(Sampler):
         # n_iterations used for growing triangle
         self.n_iterations = n_iterations
         self.iteration_counter = 0
-        self.triangle_counter = 2
+        self.triangle_counter = 1
         self.growth_parameter = growth_parameter
     def sample_actions(
         self,
@@ -64,17 +64,17 @@ class GrowingTriangleSampler(Sampler):
         else:
             with no_conditioning_exception_handler("estimator", self.estimator):
                 estimator_output = self.estimator(states)
+        # disable exit action for non-anti-diagonal states  
+        non_exit_condition = (states.tensor < env.height-self.triangle_counter).any(dim=-1)
+        states.forward_masks[non_exit_condition,-1] = False
+        # allow exit action only for anti-diagonal states
+        exit_condition = (states.tensor >= env.height-self.triangle_counter).any(dim=-1)
+        states.forward_masks[exit_condition,:] = False
+        states.forward_masks[exit_condition,-1] = True
 
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )
-        # mask exit actions at states that are not at height-triangle counter
-            
-        condition = (states.tensor < env.height - self.triangle_counter).any(-1)
-        logits = dist.logits
-        logits[..., -1][condition] = -float("inf")
-        dist.logits = logits
-
         with torch.no_grad():
             actions = dist.sample()
 
@@ -96,10 +96,12 @@ class GrowingTriangleSampler(Sampler):
     def sample_trajectories(self, *args, **kwargs):
         # get env from args
         env = args[0]
-        # increment the triangle counter 
-        self.triangle_counter += 1 
-        if self.iteration_counter % ((2 * env.height) - 2) == 0:
-            # reset triangle counter every time we reach the end of a triangle
-            self.triangle_counter = 1
+        self.iteration_counter += 1
+        # increment the triangle counter every time the iteration counter is divisible by 
+        if self.iteration_counter % (((self.n_iterations*0.01) // ((2*env.height)-1))) == 0:
+            if self.triangle_counter == env.height-1:
+                self.triangle_counter = 1
+            else:
+                self.triangle_counter = min(self.triangle_counter + 1, env.height-1)
         Trajectories = super().sample_trajectories(*args, **kwargs)
         return Trajectories

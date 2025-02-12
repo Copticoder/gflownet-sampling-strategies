@@ -54,6 +54,7 @@ class TopologicalFMGFlowNet(FMGFlowNet):
         
         assert len(states.batch_shape) == 1
         assert not torch.any(states.is_initial_state)
+        # do flow matching only on children of the terminal states onwards
         # do bfs on the states from the topology graph, stack the states in the order of bfs, then do flow matching
         # make sure topology graph isn't empty 
         frontier_states = []
@@ -67,7 +68,6 @@ class TopologicalFMGFlowNet(FMGFlowNet):
                 visited.add(state)
                 if state in self.topology:
                     for child in self.topology[state]:
-                        deque.append(child)
                         frontier_states.append(child)
             states = DiscreteStates.stack_states(frontier_states)
         incoming_log_flows = torch.full_like(
