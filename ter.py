@@ -46,7 +46,7 @@ def main(args):  # noqa: C901
 
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_{args.loss}_backwards_{args.growth_parameter}_topological")
+        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.epsilon}_{args.height}_{seed}_Topological_{args.loss}_backwards_{args.growth_parameter}")
         wandb.config.update(args)
 
     # 1. Create the environment
@@ -284,8 +284,8 @@ def main(args):  # noqa: C901
                 args.validation_samples,
                 visited_terminating_states,
             )
-            plotGrid(gflownet, env)
-            print(growing_triangle_sampler.triangle_counter)
+            if args.plot:
+                plotGrid(gflownet, env)
             print(trajectories)
             if use_wandb:
                 wandb.log(validation_info, step=iteration)
@@ -321,6 +321,12 @@ if __name__ == "__main__":
         type=int,
         default=16,
         help="Batch size, i.e. number of trajectories to sample per training iteration",
+    )
+    parser.add_argument(
+        "--plot",
+        type=bool,
+        default=False,
+        help="Plot the grid after each validation interval",
     )
     parser.add_argument(
         "--replay_buffer_size",
@@ -417,7 +423,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--epsilon",
         type= float, 
-        default=1.0, 
+        default=0.0, 
         help="Use epsilon-greedy action selection. Defaults to 1.0 and decreases linearly to 0.1",
     )
     args = parser.parse_args()
