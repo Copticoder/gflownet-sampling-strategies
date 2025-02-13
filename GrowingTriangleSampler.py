@@ -79,7 +79,7 @@ class GrowingTriangleSampler(Sampler):
             # disable exit action for first states
             initial_condition = states.is_initial_state
             states.forward_masks[initial_condition,-1] = False
-        
+            
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )
@@ -109,7 +109,7 @@ class GrowingTriangleSampler(Sampler):
         self.iteration_counter += 1
         # increment the triangle counter every time the iteration counter is divisible by 
         if self.increment_boolean==True:
-            if self.iteration_counter % 50 == 0:
+            if self.iteration_counter % (((self.n_iterations*self.growth_parameter) // ((2*env.height)-1))) == 0:
                 if self.triangle_counter < env.height - 1:
                     self.triangle_counter += 1
                 else:
