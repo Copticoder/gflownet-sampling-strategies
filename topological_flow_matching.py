@@ -33,8 +33,6 @@ class TopologicalFMGFlowNet(FMGFlowNet):
     # init from super class
     def __init__(self, logF: DiscretePolicyEstimator, alpha: float = 1.0):
         super().__init__(logF, alpha)
-        self.topology = {}
-        
     def flow_matching_loss(
         self,
         env: DiscreteEnv,
@@ -54,22 +52,6 @@ class TopologicalFMGFlowNet(FMGFlowNet):
         
         assert len(states.batch_shape) == 1
         assert not torch.any(states.is_initial_state)
-        # do flow matching only on children of the terminal states onwards
-        # do bfs on the states from the topology graph, stack the states in the order of bfs, then do flow matching
-        # make sure topology graph isn't empty 
-        frontier_states = []
-        if self.topology:
-            deque = list(set(states.clone()))
-            visited = set()
-            while deque:
-                state = tuple(deque.pop(0).tensor.tolist())
-                if state in visited:
-                    continue
-                visited.add(state)
-                if state in self.topology:
-                    for child in self.topology[state]:
-                        frontier_states.append(child)
-            states = DiscreteStates.stack_states(frontier_states)
         incoming_log_flows = torch.full_like(
             states.backward_masks, -float("inf"), dtype=torch.float
         )
@@ -155,29 +137,6 @@ class TopologicalFMGFlowNet(FMGFlowNet):
         log_rewards = terminating_states.log_rewards
         return (terminating_log_edge_flows - log_rewards).pow(2).mean()
     
-    def populate_topology(self, terminating_states: DiscreteStates, env: DiscreteEnv):
-        for action_idx in range(env.n_actions - 1):
-            valid_backward_mask = terminating_states.backward_masks[:, action_idx]
-            valid_forward_mask = terminating_states.forward_masks[:, action_idx]
-            valid_backward_states = terminating_states[valid_backward_mask]
-            valid_forward_states = terminating_states[valid_forward_mask]
-
-            backward_actions = torch.full_like(
-                valid_backward_states.backward_masks[:, 0], action_idx, dtype=torch.long
-            ).unsqueeze(-1)
-            backward_actions = env.actions_from_tensor(backward_actions)
-
-            valid_backward_states_parents = env._backward_step(
-                valid_backward_states, backward_actions
-            )
-            for parent, state in zip(valid_backward_states_parents, valid_backward_states):
-                parent_key = tuple(parent.tensor.tolist())
-                if parent_key not in self.topology:
-                    self.topology[parent_key] = set()
-                self.topology[parent_key].add(state)
-                if tuple(state.tensor.tolist()) not in self.topology:
-                    self.topology[tuple(state.tensor.tolist())] = set()
-                    self.topology[tuple(state.tensor.tolist())].add(state)
     def loss(
         self,
         env: DiscreteEnv,
@@ -198,9 +157,6 @@ class TopologicalFMGFlowNet(FMGFlowNet):
             _,
             terminating_conditioning,
         ) = states_tuple
-        # populate the topology graph first 
-        self.populate_topology(terminating_states, env)
-        # do flow matching for other actions except exit action
         rm_loss = self.reward_matching_loss(env, terminating_states, terminating_conditioning)
         fm_loss = self.flow_matching_loss(
             env, terminating_states, terminating_conditioning
