@@ -18,7 +18,8 @@ class GrowingTriangleSampler(Sampler):
         self.iteration_counter = 0
         self.triangle_counter = 1
         self.growth_parameter = growth_parameter
-        self.increment_boolean = True
+        # used to enable/disable topological sampling
+        self.topological_boolean = True
     def sample_actions(
         self,
         env: Env,
@@ -66,7 +67,7 @@ class GrowingTriangleSampler(Sampler):
             with no_conditioning_exception_handler("estimator", self.estimator):
                 estimator_output = self.estimator(states)
         
-        if self.increment_boolean:
+        if self.topological_boolean:
             # disable exit action for non-anti-diagonal states.
             non_exit_condition = (states.tensor < env.height - self.triangle_counter).any(-1)
             states.forward_masks[non_exit_condition,-1] = False
@@ -104,12 +105,12 @@ class GrowingTriangleSampler(Sampler):
         env = args[0]
         self.iteration_counter += 1
         # increment the triangle counter every time the iteration counter is divisible by 
-        if self.increment_boolean==True:
+        if self.topological_boolean==True:
             if self.iteration_counter % (((self.n_iterations*self.growth_parameter) // ((2*env.height)-1))) == 0:
                 if self.triangle_counter < env.height - 1:
                     self.triangle_counter += 1
                 else:
-                    self.increment_boolean = False
+                    self.topological_boolean = False
         else:
             self.triangle_counter = 1
         return Trajectories
