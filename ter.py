@@ -46,7 +46,7 @@ def main(args):  # noqa: C901
 
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.epsilon}_{args.height}_{seed}_Topological_{args.loss}_backwards_{args.growth_parameter}")
+        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_epsilon_{args.epsilon}_ModifiedFM_growth_parameter_{args.growth_parameter}")
         wandb.config.update(args)
 
     # 1. Create the environment
@@ -243,8 +243,8 @@ def main(args):  # noqa: C901
     
     # epsilon decay 
     def epsilon_decay(epsilon, iteration, n_iterations):
-        
-        return max(epsilon - (1.0 - 0.1) * iteration / n_iterations, 0.0)
+        # Linear decay from 1.0 to 0.1
+        return max(epsilon - (1.0 - 0.01) * iteration / n_iterations, 0.0)
     
     epsilon = args.epsilon
     for iteration in trange(n_iterations):
