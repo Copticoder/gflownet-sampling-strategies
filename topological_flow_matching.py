@@ -157,9 +157,15 @@ class TopologicalFMGFlowNet(FMGFlowNet):
             _,
             terminating_conditioning,
         ) = states_tuple
+        # check if there are any initial states and make only 
+        if torch.any(terminating_states.is_initial_state):
+            # remove initial states
+            initial_less_terminating_states = terminating_states[~terminating_states.is_initial_state]
+            fm_loss = self.flow_matching_loss(
+                env, initial_less_terminating_states, terminating_conditioning
+            )
+        else:
+            fm_loss = self.flow_matching_loss(env, terminating_states, terminating_conditioning)
         rm_loss = self.reward_matching_loss(env, terminating_states, terminating_conditioning)
-        fm_loss = self.flow_matching_loss(
-            env, terminating_states, terminating_conditioning
-        )
         
         return fm_loss + self.alpha * rm_loss

@@ -70,15 +70,11 @@ class GrowingTriangleSampler(Sampler):
             # disable exit action for non-anti-diagonal states.
             non_exit_condition = (states.tensor < env.height - self.triangle_counter).any(-1)
             states.forward_masks[non_exit_condition,-1] = False
-            # enable exit action for anti-diagonal states 
+            # enable exit action for anti-diagonal states
             exit_condition = ~non_exit_condition
             states.forward_masks[exit_condition,-1] = True
             # disable all other actions for current anti-diagonal states
             states.forward_masks[exit_condition,:-1] = False
-        else:
-            # disable exit action for first states, this is because we are only doing modified FM
-            initial_condition = states.is_initial_state
-            states.forward_masks[initial_condition,-1] = False
             
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
