@@ -36,6 +36,7 @@ from gfn.utils.modules import MLP, DiscreteUniform, Tabular
 from gfn.utils.training import validate
 from topological_flow_matching import TopologicalFMGFlowNet
 from GrowingTriangleSampler import GrowingTriangleSampler
+from gfn.samplers import Sampler
 DEFAULT_SEED = 4444
 
 
@@ -46,7 +47,7 @@ def main(args):  # noqa: C901
 
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_epsilon_{args.epsilon}_ModifiedFM_growth_parameter_{args.growth_parameter}")
+        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_epsilon_{args.epsilon}_{args.loss}_normal")
         wandb.config.update(args)
 
     # 1. Create the environment
@@ -77,7 +78,7 @@ def main(args):  # noqa: C901
             n_actions=env.n_actions,
             preprocessor=env.preprocessor,
         )
-        gflownet = TopologicalFMGFlowNet(estimator)
+        gflownet = FMGFlowNet(estimator)
     else:
         pb_module = None
         # We need a DiscretePFEstimator and a DiscretePBEstimator
@@ -239,7 +240,8 @@ def main(args):  # noqa: C901
             n_iterations=n_iterations,
         )
     else:
-        growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
+        # growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
+        growing_triangle_sampler = Sampler(estimator=estimator)
     
     # epsilon decay 
     def epsilon_decay(epsilon, iteration, n_iterations):
@@ -286,7 +288,6 @@ def main(args):  # noqa: C901
             )
             if args.plot:
                 plotGrid(gflownet, env)
-            print(trajectories)
             if use_wandb:
                 wandb.log(validation_info, step=iteration)
             to_log.update(validation_info)
