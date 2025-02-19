@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "type": "python",
+        "name": "Run ter.py",
+        "request": "launch",
+        "program": "${file}",
+        "console": "integratedTerminal",
+        "args": [
+          "--loss", "DB"
+        ],
+        "justMyCode": false
+      }
+    ]
+  }

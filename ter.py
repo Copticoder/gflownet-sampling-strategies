@@ -35,18 +35,19 @@ from gfn.utils.common import set_seed
 from gfn.utils.modules import MLP, DiscreteUniform, Tabular
 from gfn.utils.training import validate
 from topological_flow_matching import TopologicalFMGFlowNet
+from topological_detailed_balance import TopologicalDBGFlowNet
 from GrowingTriangleSampler import GrowingTriangleSampler
 DEFAULT_SEED = 4444
-
+from gfn.samplers import Sampler
 
 def main(args):  # noqa: C901
     seed = args.seed if args.seed != 0 else DEFAULT_SEED
     set_seed(seed)
     device_str = "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
-
+    print(f"Using device: {device_str}")
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_epsilon_{args.epsilon}_ModifiedFM_growth_parameter_{args.growth_parameter}")
+        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_epsilon_{args.epsilon}_ModifiedFM_Topological_growth_parameter_{args.growth_parameter}")
         wandb.config.update(args)
 
     # 1. Create the environment
@@ -152,11 +153,11 @@ def main(args):  # noqa: C901
                 module=module, preprocessor=env.preprocessor
             )
             if args.loss == "DB":
-                gflownet = DBGFlowNet(
-                    pf=pf_estimator,
-                    pb=pb_estimator,
-                    logF=logF_estimator,
-                )
+                gflownet = TopologicalDBGFlowNet(
+                pf_estimator,
+                pb_estimator,
+                logF_estimator,
+            )
             else:
                 gflownet = SubTBGFlowNet(
                     pf=pf_estimator,
@@ -205,7 +206,6 @@ def main(args):  # noqa: C901
 
     # Move the gflownet to the GPU.
     gflownet = gflownet.to(device_str)
-
     # 3. Create the optimizer
     # Policy parameters have their own LR.
     params = [
@@ -227,20 +227,19 @@ def main(args):  # noqa: C901
         )
 
     optimizer = torch.optim.Adam(params)
-
     visited_terminating_states = env.states_from_batch_shape((0,))
 
     states_visited = 0
     n_iterations = args.n_trajectories // args.batch_size
     validation_info = {"l1_dist": float("inf")}
-    if args.loss in ("TB", "DB", "SubTB", "ZVar"):
+    if args.loss in ("TB", "DB", "SubTB", "ZVar", "ModifiedDB"):
         growing_triangle_sampler = GrowingTriangleSampler(
             estimator=pf_estimator,
             n_iterations=n_iterations,
         )
     else:
-        growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
-    
+        # growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
+        growing_triangle_sampler = Sampler(estimator=estimator)
     # epsilon decay 
     def epsilon_decay(epsilon, iteration, n_iterations):
         # Linear decay from 1.0 to 0.1
@@ -291,7 +290,6 @@ def main(args):  # noqa: C901
                 wandb.log(validation_info, step=iteration)
             to_log.update(validation_info)
             tqdm.write(f"{iteration}: {to_log}")
-
     return validation_info["l1_dist"]
 
 
