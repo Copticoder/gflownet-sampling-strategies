@@ -146,7 +146,11 @@ class TopologicalDBGFlowNet(DBGFlowNet):
         # get last states, and last_last states
         last_states = trajectories.states[trajectories.when_is_done - 1, torch.arange(trajectories.n_trajectories)]
         last_last_states = trajectories.states[trajectories.when_is_done - 2, torch.arange(trajectories.n_trajectories)]
-        actions = trajectories.actions[~trajectories.actions.is_dummy]
+        # get last states actions and last last states actions
+        last_actions = trajectories.actions[-1]
+        
+        last_last_actions = trajectories.actions[-2]
+        
         is_done = (
             last_states.is_sink_state
             if not self.is_backward
