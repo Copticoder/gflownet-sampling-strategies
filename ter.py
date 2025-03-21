@@ -302,6 +302,7 @@ def main(args):  # noqa: C901
         sampler = GrowingTriangleSampler(
             estimator=pf_estimator,
             n_iterations=n_iterations,
+            growth_parameter=args.growth_parameter,
         )
     l1_distances = []  # Track l1 distances over time
     validation_steps = []  # Track corresponding steps
@@ -415,7 +416,11 @@ def main(args):  # noqa: C901
         plt.tight_layout()
         plt.show()
         plt.close()
-
+    # append to csv the R0, R1, R2, L1 Distance, Loss, logz, and states visited
+    # with open("results.csv", "a") as f:
+    #     f.write(
+    #         f"{args.R0},{args.R1},{args.R2},{validation_info['l1_dist']},{loss.item()},{gflownet.logZ.item()},{states_visited},{args.sampler}\n"
+    #     )
     return validation_info["l1_dist"]
 
 
@@ -433,7 +438,12 @@ if __name__ == "__main__":
     parser.add_argument("--R0", type=float, default=0.1, help="Environment's R0")
     parser.add_argument("--R1", type=float, default=0.5, help="Environment's R1")
     parser.add_argument("--R2", type=float, default=2.0, help="Environment's R2")
-
+    parser.add_argument(
+        "--growth_parameter",
+        type=float,
+        default=0.1,
+        help="Growth parameter for the prioritized replay buffer.",
+    )
     parser.add_argument(
         "--seed",
         type=int,
