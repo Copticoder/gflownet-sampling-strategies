@@ -74,9 +74,7 @@ class GrowingTriangleSampler(Sampler):
             # enable exit action for anti-diagonal states
             exit_condition = ~non_exit_condition
             states.forward_masks[exit_condition,-1] = True
-            # disable all other actions for current anti-diagonal states
-            states.forward_masks[exit_condition,:-1] = False
-            
+        
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )
@@ -105,12 +103,6 @@ class GrowingTriangleSampler(Sampler):
         env = args[0]
         self.iteration_counter += 1
         # increment the triangle counter every time the iteration counter is divisible by 
-        if self.topological_boolean==True:
-            if self.iteration_counter % (((self.n_iterations*self.growth_parameter) // ((2*env.height)-1))) == 0:
-                if self.triangle_counter < env.height - 1:
-                    self.triangle_counter += 1
-                else:
-                    self.topological_boolean = False
-        else:
-            self.triangle_counter = 1
+        if self.iteration_counter > (self.growth_parameter*self.n_iterations * self.triangle_counter)/((env.ndim*env.height)-1):
+                self.triangle_counter += 1
         return Trajectories

@@ -1,0 +1,20 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--loss", "TB", "--height", "8", "--R0", "0.0001", "--R1","1","--R2","3"
+             ,"--wandb_project",  "gfn-ter-fm-test", "--ndim", "3"
+            ],
+        }
+    ]
+}
