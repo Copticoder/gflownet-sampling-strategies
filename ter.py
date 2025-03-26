@@ -9,51 +9,122 @@ python train_hypergrid.py --ndim 2 --height 64 --R0 {0.1, 0.01, 0.001} --tied {-
 And run one of the following to reproduce some of the results in
 [Learning GFlowNets from partial episodes for improved convergence and stability](https://arxiv.org/abs/2209.12782)
 python train_hypergrid.py --ndim {2, 4} --height 12 --R0 {1e-3, 1e-4} --tied --loss {TB, DB, SubTB}
-"""
-# TODO:
-# 1 - change the cloning behavior in DiscreteEnv to also clone forward and backward masks to avoid same memory address
-# 2 - epsilon greedy action selection
-from argparse import ArgumentParser
 
+This script also provides a function `get_exact_P_T` that computes the exact terminating state
+distribution for the HyperGrid environment, which is useful for evaluation and visualization.
+"""
+
+from argparse import ArgumentParser
+from typing import cast
+
+import matplotlib.pyplot as plt
 import torch
 import wandb
+from matplotlib.gridspec import GridSpec
 from tqdm import tqdm, trange
 
-from gfn.containers import PrioritizedReplayBuffer, ReplayBuffer
+from gfn.containers import NormBasedDiversePrioritizedReplayBuffer, ReplayBuffer
 from gfn.gflownet import (
     DBGFlowNet,
     FMGFlowNet,
+    GFlowNet,
     LogPartitionVarianceGFlowNet,
     ModifiedDBGFlowNet,
     SubTBGFlowNet,
     TBGFlowNet,
 )
-from visualize_grid  import plotGrid
+from topological_detailed_balance import TopologicalDBGFlowNet
 from gfn.gym import HyperGrid
-from gfn.modules import DiscretePolicyEstimator, ScalarEstimator
+from GrowingTriangleSampler import GrowingTriangleSampler
+from gfn.gym.helpers.preprocessors import KHotPreprocessor
+from gfn.modules import DiscretePolicyEstimator, GFNModule, ScalarEstimator
+from gfn.states import DiscreteStates
 from gfn.utils.common import set_seed
 from gfn.utils.modules import MLP, DiscreteUniform, Tabular
 from gfn.utils.training import validate
-from topological_flow_matching import TopologicalFMGFlowNet
-from topological_detailed_balance import TopologicalDBGFlowNet
-from GrowingTriangleSampler import GrowingTriangleSampler
+
 DEFAULT_SEED = 4444
-from gfn.samplers import Sampler
+
+
+def get_exact_P_T(env: HyperGrid, gflownet: GFlowNet) -> torch.Tensor:
+    r"""Evaluates the exact terminating state distribution P_T for HyperGrid.
+
+    For each state s', the terminating state probability is computed as:
+
+    .. math::
+        P_T(s') = u(s') P_F(s_f | s')
+
+    where u(s') satisfies the recursion:
+
+    .. math::
+        u(s') = \sum_{s \in \text{Par}(s')} u(s) P_F(s' | s)
+
+    with the base case u(s_0) = 1.
+
+    Args:
+        env: The HyperGrid environment
+        gflownet: The GFlowNet model
+
+    Returns:
+        The exact terminating state distribution as a tensor
+    """
+    grid = env.build_grid()
+
+    # Get the forward policy distribution for all states
+    with torch.no_grad():
+        # Handle both FM and other GFlowNet types
+        policy: GFNModule = cast(
+            GFNModule, gflownet.logF if isinstance(gflownet, FMGFlowNet) else gflownet.pf
+        )
+
+        estimator_outputs = policy(grid)
+        dist = policy.to_probability_distribution(grid, estimator_outputs)
+        probabilities = torch.exp(dist.logits)  # Get raw probabilities
+
+    u = torch.ones(grid.batch_shape)
+
+    indices = env.all_indices()
+    for index in indices[1:]:
+        parents = [
+            tuple(list(index[:i]) + [index[i] - 1] + list(index[i + 1 :]) + [i])
+            for i in range(len(index))
+            if index[i] > 0
+        ]
+        parents_tensor = torch.tensor(parents)
+        parents_indices = parents_tensor[:, :-1].long()  # All but last column for u
+        action_indices = parents_tensor[:, -1].long()  # Last column for probabilities
+
+        # Compute u values for parent states
+        parent_u_values = torch.stack([u[tuple(p.tolist())] for p in parents_indices])
+
+        # Compute probabilities for parent transitions
+        parent_probs = torch.stack(
+            [
+                probabilities[tuple(list(p.tolist()) + [a.item()])]
+                for p, a in zip(parents_indices, action_indices)
+            ]
+        )
+
+        u[tuple(index)] = torch.sum(parent_u_values * parent_probs)
+
+    return (u * probabilities[..., -1]).view(-1).detach().cpu()
+
 
 def main(args):  # noqa: C901
     seed = args.seed if args.seed != 0 else DEFAULT_SEED
     set_seed(seed)
-    device_str = "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
-    print(f"Using device: {device_str}")
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu"
+    )
+
     use_wandb = len(args.wandb_project) > 0
     if use_wandb:
-        wandb.init(project=args.wandb_project, name=f"HyperGrid_{args.ndim}_{args.height}_{seed}_epsilon_{args.epsilon}_ModifiedFM_Topological_growth_parameter_{args.growth_parameter}")
+        wandb.init(project=args.wandb_project)
         wandb.config.update(args)
 
     # 1. Create the environment
-    env = HyperGrid(
-        args.ndim, args.height, args.R0, args.R1, args.R2, device_str=device_str
-    )
+    env = HyperGrid(args.ndim, args.height, args.R0, args.R1, args.R2, device=device)
+    preprocessor = KHotPreprocessor(height=args.height, ndim=args.ndim)
 
     # 2. Create the gflownets.
     #    For this we need modules and estimators.
@@ -68,7 +139,7 @@ def main(args):  # noqa: C901
             module = Tabular(n_states=env.n_states, output_dim=env.n_actions)
         else:
             module = MLP(
-                input_dim=env.preprocessor.output_dim,
+                input_dim=preprocessor.output_dim,
                 output_dim=env.n_actions,
                 hidden_dim=args.hidden_dim,
                 n_hidden_layers=args.n_hidden,
@@ -76,9 +147,9 @@ def main(args):  # noqa: C901
         estimator = DiscretePolicyEstimator(
             module=module,
             n_actions=env.n_actions,
-            preprocessor=env.preprocessor,
+            preprocessor=preprocessor,
         )
-        gflownet = TopologicalFMGFlowNet(estimator)
+        gflownet = FMGFlowNet(estimator)
     else:
         pb_module = None
         # We need a DiscretePFEstimator and a DiscretePBEstimator
@@ -88,14 +159,14 @@ def main(args):  # noqa: C901
                 pb_module = Tabular(n_states=env.n_states, output_dim=env.n_actions - 1)
         else:
             pf_module = MLP(
-                input_dim=env.preprocessor.output_dim,
+                input_dim=preprocessor.output_dim,
                 output_dim=env.n_actions,
                 hidden_dim=args.hidden_dim,
                 n_hidden_layers=args.n_hidden,
             )
             if not args.uniform_pb:
                 pb_module = MLP(
-                    input_dim=env.preprocessor.output_dim,
+                    input_dim=preprocessor.output_dim,
                     output_dim=env.n_actions - 1,
                     hidden_dim=args.hidden_dim,
                     n_hidden_layers=args.n_hidden,
@@ -114,13 +185,13 @@ def main(args):  # noqa: C901
         pf_estimator = DiscretePolicyEstimator(
             module=pf_module,
             n_actions=env.n_actions,
-            preprocessor=env.preprocessor,
+            preprocessor=preprocessor,
         )
         pb_estimator = DiscretePolicyEstimator(
             module=pb_module,
             n_actions=env.n_actions,
             is_backward=True,
-            preprocessor=env.preprocessor,
+            preprocessor=preprocessor,
         )
 
         if args.loss == "ModifiedDB":
@@ -138,26 +209,24 @@ def main(args):  # noqa: C901
                 pb_estimator is not None
             ), f"pb_estimator is None. Command-line arguments: {args}"
 
-            if args.tabular:
+            if isinstance(pf_module, Tabular):
                 module = Tabular(n_states=env.n_states, output_dim=1)
             else:
                 module = MLP(
-                    input_dim=env.preprocessor.output_dim,
+                    input_dim=preprocessor.output_dim,
                     output_dim=1,
                     hidden_dim=args.hidden_dim,
                     n_hidden_layers=args.n_hidden,
                     trunk=pf_module.trunk if args.tied else None,
                 )
 
-            logF_estimator = ScalarEstimator(
-                module=module, preprocessor=env.preprocessor
-            )
+            logF_estimator = ScalarEstimator(module=module, preprocessor=preprocessor)
             if args.loss == "DB":
                 gflownet = TopologicalDBGFlowNet(
-                pf_estimator,
-                pb_estimator,
-                logF_estimator,
-            )
+                    pf=pf_estimator,
+                    pb=pb_estimator,
+                    logF=logF_estimator,
+                )
             else:
                 gflownet = SubTBGFlowNet(
                     pf=pf_estimator,
@@ -179,33 +248,24 @@ def main(args):  # noqa: C901
 
     assert gflownet is not None, f"No gflownet for loss {args.loss}"
 
-    # Initialize the replay buffer ?
+    # Create replay buffer if needed
     replay_buffer = None
     if args.replay_buffer_size > 0:
-        if args.loss in ("TB", "SubTB", "ZVar"):
-            objects_type = "trajectories"
-        elif args.loss in ("DB", "ModifiedDB"):
-            objects_type = "transitions"
-        elif args.loss == "FM":
-            objects_type = "states"
-        else:
-            raise NotImplementedError(f"Unknown loss: {args.loss}")
-
         if args.replay_buffer_prioritized:
-            replay_buffer = PrioritizedReplayBuffer(
+            replay_buffer = NormBasedDiversePrioritizedReplayBuffer(
                 env,
-                objects_type=objects_type,
                 capacity=args.replay_buffer_size,
-                p_norm_distance=1,  # Use L1-norm for diversity estimation.
-                cutoff_distance=0,  # -1 turns off diversity-based filtering.
+                cutoff_distance=args.cutoff_distance,
+                p_norm_distance=args.p_norm_distance,
             )
         else:
             replay_buffer = ReplayBuffer(
-                env, objects_type=objects_type, capacity=args.replay_buffer_size
+                env,
+                capacity=args.replay_buffer_size,
             )
 
-    # Move the gflownet to the GPU.
-    gflownet = gflownet.to(device_str)
+    gflownet = gflownet.to(device)
+
     # 3. Create the optimizer
     # Policy parameters have their own LR.
     params = [
@@ -227,49 +287,39 @@ def main(args):  # noqa: C901
         )
 
     optimizer = torch.optim.Adam(params)
-    visited_terminating_states = env.states_from_batch_shape((0,))
 
+    visited_terminating_states = env.states_from_batch_shape((0,))
     states_visited = 0
     n_iterations = args.n_trajectories // args.batch_size
+    sampler = GrowingTriangleSampler(pf_estimator,n_iterations, growth_parameter=args.growth_parameter)
     validation_info = {"l1_dist": float("inf")}
-    if args.loss in ("TB", "DB", "SubTB", "ZVar", "ModifiedDB"):
-        growing_triangle_sampler = GrowingTriangleSampler(
-            estimator=pf_estimator,
-            n_iterations=n_iterations,
-        )
-    else:
-        # growing_triangle_sampler = GrowingTriangleSampler(estimator=estimator, n_iterations=n_iterations, growth_parameter=args.growth_parameter)
-        growing_triangle_sampler = Sampler(estimator=estimator)
-    # epsilon decay 
-    def epsilon_decay(epsilon, iteration, n_iterations):
-        # Linear decay from 1.0 to 0.1
-        return max(epsilon - (1.0 - 0.01) * iteration / n_iterations, 0.0)
-    
-    epsilon = args.epsilon
+    l1_distances = []  # Track l1 distances over time
+    validation_steps = []  # Track corresponding steps
     for iteration in trange(n_iterations):
-        if args.epsilon:
-            epsilon = epsilon_decay(epsilon, iteration, n_iterations)
-        trajectories = growing_triangle_sampler.sample_trajectories(
+        trajectories = sampler.sample_trajectories(
             env,
             n=args.batch_size,
             save_logprobs=args.replay_buffer_size == 0,
             save_estimator_outputs=False,
-            epsilon=epsilon,
         )
         training_samples = gflownet.to_training_samples(trajectories)
         if replay_buffer is not None:
             with torch.no_grad():
                 replay_buffer.add(training_samples)
                 training_objects = replay_buffer.sample(n_trajectories=args.batch_size)
-        else:   
+        else:
             training_objects = training_samples
 
         optimizer.zero_grad()
-        loss = gflownet.loss(env, training_objects)
+        gflownet = cast(GFlowNet, gflownet)
+        loss = gflownet.loss(
+            env, training_objects, recalculate_all_logprobs=args.replay_buffer_size > 0
+        )
         loss.backward()
         optimizer.step()
-
-        visited_terminating_states.extend(trajectories.last_states)
+        visited_terminating_states.extend(
+            cast(DiscreteStates, trajectories.terminating_states)
+        )
 
         states_visited += len(trajectories)
 
@@ -283,13 +333,79 @@ def main(args):  # noqa: C901
                 args.validation_samples,
                 visited_terminating_states,
             )
-            if args.plot:
-                plotGrid(gflownet, env)
-            print(trajectories)
             if use_wandb:
                 wandb.log(validation_info, step=iteration)
             to_log.update(validation_info)
             tqdm.write(f"{iteration}: {to_log}")
+            l1_distances.append(validation_info["l1_dist"])  # Store l1 distance
+            validation_steps.append(iteration)  # Store corresponding step
+
+    if args.plot:
+        if args.wandb_project:
+            raise ValueError("plot argument is incompatible with wandb_project")
+        if args.ndim != 2:
+            raise ValueError("plotting is only supported for 2D environments")
+
+        # Create figure with 3 subplots with proper spacing
+        fig = plt.figure(figsize=(15, 5))
+        gs = GridSpec(1, 4, width_ratios=[1, 1, 0.1, 1.2])
+
+        ax1 = fig.add_subplot(gs[0])
+        ax2 = fig.add_subplot(gs[1])
+        cax = fig.add_subplot(gs[2])  # Colorbar axis
+        ax3 = fig.add_subplot(gs[3])
+
+        # Get distributions and find global min/max for consistent color scaling
+        true_dist = env.true_dist_pmf.reshape(args.height, args.height).cpu().numpy()
+        learned_dist = (
+            get_exact_P_T(env, gflownet).reshape(args.height, args.height).numpy()
+        )
+
+        # Ensure consistent orientation by transposing
+        true_dist = true_dist.T
+        learned_dist = learned_dist.T
+
+        vmin = min(true_dist.min(), learned_dist.min())
+        vmax = max(true_dist.max(), learned_dist.max())
+
+        # True reward distribution
+        im1 = ax1.imshow(
+            true_dist,
+            cmap="viridis",
+            interpolation="none",
+            origin="lower",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax1.set_title("True Distribution")
+
+        # Learned reward distribution
+        _ = ax2.imshow(
+            learned_dist,
+            cmap="viridis",
+            interpolation="none",
+            origin="lower",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax2.set_title("Learned Distribution")
+
+        # Add colorbar in its own axis
+        plt.colorbar(im1, cax=cax)
+
+        # L1 distances over time
+        states_per_validation = args.batch_size * args.validation_interval
+        validation_states = [i * states_per_validation for i in range(len(l1_distances))]
+        ax3.plot(validation_states, l1_distances)
+        ax3.set_xlabel("States Visited")
+        ax3.set_ylabel("L1 Distance")
+        ax3.set_title("L1 Distance Evolution")
+        ax3.set_yscale("log")  # Set log scale for y-axis
+
+        plt.tight_layout()
+        plt.show()
+        plt.close()
+
     return validation_info["l1_dist"]
 
 
@@ -321,12 +437,6 @@ if __name__ == "__main__":
         help="Batch size, i.e. number of trajectories to sample per training iteration",
     )
     parser.add_argument(
-        "--plot",
-        type=bool,
-        default=False,
-        help="Plot the grid after each validation interval",
-    )
-    parser.add_argument(
         "--replay_buffer_size",
         type=int,
         default=0,
@@ -342,7 +452,7 @@ if __name__ == "__main__":
         "--loss",
         type=str,
         choices=["FM", "TB", "DB", "SubTB", "ZVar", "ModifiedDB"],
-        default="TB",
+        default="FM",
         help="Loss function to use",
     )
     parser.add_argument(
@@ -354,7 +464,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--subTB_lambda", type=float, default=0.9, help="Lambda parameter for SubTB"
     )
-    parser.add_argument("--growth_parameter", type=float, default=0.1, help="Triangle growth parameter")
+
     parser.add_argument(
         "--tabular",
         action="store_true",
@@ -369,6 +479,11 @@ if __name__ == "__main__":
         type=int,
         default=256,
         help="Hidden dimension of the estimators' neural network modules.",
+    )
+    parser.add_argument(
+        "--growth_parameter",
+        type=int,
+        default=0.1
     )
     parser.add_argument(
         "--n_hidden",
@@ -418,12 +533,13 @@ if __name__ == "__main__":
         default="",
         help="Name of the wandb project. If empty, don't use wandb",
     )
+
     parser.add_argument(
-        "--epsilon",
-        type= float, 
-        default=0.0, 
-        help="Use epsilon-greedy action selection. Defaults to 1.0 and decreases linearly to 0.1",
+        "--plot",
+        action="store_true",
+        help="Generate plots of true and learned distributions (only works for 2D, incompatible with wandb)",
     )
+
     args = parser.parse_args()
 
     print(main(args))
