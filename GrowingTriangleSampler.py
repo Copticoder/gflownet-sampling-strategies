@@ -67,9 +67,9 @@ class GrowingTriangleSampler(Sampler):
             with no_conditioning_exception_handler("estimator", self.estimator):
                 estimator_output = self.estimator(states)
         
-        if self.topological_type != "normal" and self.triangle_counter < (env.ndim*env.height)-1:
+        if self.topological_type != "normal" and self.triangle_counter < (env.ndim*(env.height-1)):
             # allow only the exit action for states that are at frontier 
-            frontier = self.triangle_counter if self.topological_type == "small_then_large" else (env.ndim*env.height) - 1 - self.triangle_counter
+            frontier = self.triangle_counter if self.topological_type == "small_then_large" else (env.ndim*(env.height-1)) - self.triangle_counter
             
             non_exit_condition = (torch.sum(states.tensor,dim=-1) != torch.full((states.tensor.size(dim=0),),frontier))
             states.forward_masks[non_exit_condition,-1] = False
