@@ -16,7 +16,7 @@ class GrowingTriangleSampler(Sampler):
         # n_iterations used for growing triangle
         self.n_iterations = n_iterations
         self.iteration_counter = 0
-        self.triangle_counter = 1
+        self.triangle_counter = 0
         self.growth_parameter = growth_parameter
         # used to enable/disable topological sampling
         self.topological_type = topological_type
@@ -67,7 +67,7 @@ class GrowingTriangleSampler(Sampler):
             with no_conditioning_exception_handler("estimator", self.estimator):
                 estimator_output = self.estimator(states)
         
-        if self.topological_type != "normal" and self.triangle_counter < (env.ndim*(env.height-1)):
+        if self.topological_type != "normal" and self.triangle_counter <= (env.ndim*(env.height-1)):
             # allow only the exit action for states that are at frontier 
             frontier = self.triangle_counter if self.topological_type == "small_then_large" else (env.ndim*(env.height-1)) - self.triangle_counter
             
