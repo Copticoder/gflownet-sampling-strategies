@@ -11,7 +11,7 @@ from gfn.utils.handlers import (
 )
 
 class GrowingTriangleSampler(Sampler):
-    def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int, growth_parameter: int = 0.1):
+    def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int, topological_type: str,growth_parameter: int = 0.1):
         super().__init__(estimator)
         # n_iterations used for growing triangle
         self.n_iterations = n_iterations
@@ -19,7 +19,7 @@ class GrowingTriangleSampler(Sampler):
         self.triangle_counter = 1
         self.growth_parameter = growth_parameter
         # used to enable/disable topological sampling
-        self.topological_boolean = True
+        self.topological_type = topological_type
     def sample_actions(
         self,
         env: Env,
@@ -67,14 +67,18 @@ class GrowingTriangleSampler(Sampler):
             with no_conditioning_exception_handler("estimator", self.estimator):
                 estimator_output = self.estimator(states)
         
-        if self.topological_boolean:
-            # disable exit action for non-anti-diagonal states.
-            non_exit_condition = (states.tensor < env.height - self.triangle_counter).any(-1)
+        if self.topological_type != "normal" and self.triangle_counter < (env.ndim*env.height)-1:
+            # allow only the exit action for states that are at frontier 
+            frontier = self.triangle_counter if self.topological_type == "small_then_large" else (env.ndim*env.height) - 1 - self.triangle_counter
+            
+            non_exit_condition = (torch.sum(states.tensor,dim=-1) != torch.full((states.tensor.size(dim=0),),frontier))
             states.forward_masks[non_exit_condition,-1] = False
             # enable exit action for anti-diagonal states
             exit_condition = ~non_exit_condition
             states.forward_masks[exit_condition,-1] = True
-        
+            # disable all actions for states that are at the same level as the triangle counter
+            states.forward_masks[exit_condition,:-1] = False
+            
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )

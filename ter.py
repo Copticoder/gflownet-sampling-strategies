@@ -35,15 +35,16 @@ from gfn.gflownet import (
 )
 from gfn.gym import HyperGrid
 from gfn.modules import DiscretePolicyEstimator, GFNModule, ScalarEstimator
+from gfn.preprocessors import KHotPreprocessor
 from gfn.states import DiscreteStates
 from gfn.utils.common import set_seed
 from gfn.utils.modules import MLP, DiscreteUniform, Tabular
 from gfn.utils.training import validate
-from GrowingTriangleSampler import GrowingTriangleSampler
-from gfn.samplers import Sampler
 
 DEFAULT_SEED = 4444
 
+from GrowingTriangleSampler import GrowingTriangleSampler
+from gfn.samplers import Sampler
 
 def get_exact_P_T(env: HyperGrid, gflownet: GFlowNet) -> torch.Tensor:
     r"""Evaluates the exact terminating state distribution P_T for HyperGrid.
@@ -123,6 +124,7 @@ def main(args):  # noqa: C901
 
     # 1. Create the environment
     env = HyperGrid(args.ndim, args.height, args.R0, args.R1, args.R2, device=device)
+    preprocessor = KHotPreprocessor(height=args.height, ndim=args.ndim)
 
     # 2. Create the gflownets.
     #    For this we need modules and estimators.
@@ -137,7 +139,7 @@ def main(args):  # noqa: C901
             module = Tabular(n_states=env.n_states, output_dim=env.n_actions)
         else:
             module = MLP(
-                input_dim=env.preprocessor.output_dim,
+                input_dim=preprocessor.output_dim,
                 output_dim=env.n_actions,
                 hidden_dim=args.hidden_dim,
                 n_hidden_layers=args.n_hidden,
@@ -145,7 +147,7 @@ def main(args):  # noqa: C901
         estimator = DiscretePolicyEstimator(
             module=module,
             n_actions=env.n_actions,
-            preprocessor=env.preprocessor,
+            preprocessor=preprocessor,
         )
         gflownet = FMGFlowNet(estimator)
     else:
@@ -157,14 +159,14 @@ def main(args):  # noqa: C901
                 pb_module = Tabular(n_states=env.n_states, output_dim=env.n_actions - 1)
         else:
             pf_module = MLP(
-                input_dim=env.preprocessor.output_dim,
+                input_dim=preprocessor.output_dim,
                 output_dim=env.n_actions,
                 hidden_dim=args.hidden_dim,
                 n_hidden_layers=args.n_hidden,
             )
             if not args.uniform_pb:
                 pb_module = MLP(
-                    input_dim=env.preprocessor.output_dim,
+                    input_dim=preprocessor.output_dim,
                     output_dim=env.n_actions - 1,
                     hidden_dim=args.hidden_dim,
                     n_hidden_layers=args.n_hidden,
@@ -183,13 +185,13 @@ def main(args):  # noqa: C901
         pf_estimator = DiscretePolicyEstimator(
             module=pf_module,
             n_actions=env.n_actions,
-            preprocessor=env.preprocessor,
+            preprocessor=preprocessor,
         )
         pb_estimator = DiscretePolicyEstimator(
             module=pb_module,
             n_actions=env.n_actions,
             is_backward=True,
-            preprocessor=env.preprocessor,
+            preprocessor=preprocessor,
         )
 
         if args.loss == "ModifiedDB":
@@ -211,7 +213,7 @@ def main(args):  # noqa: C901
                 module = Tabular(n_states=env.n_states, output_dim=1)
             else:
                 module = MLP(
-                    input_dim=env.preprocessor.output_dim,
+                    input_dim=preprocessor.output_dim,
                     output_dim=1,
                     hidden_dim=args.hidden_dim,
                     n_hidden_layers=args.n_hidden,
@@ -219,7 +221,7 @@ def main(args):  # noqa: C901
                 )
 
             logF_estimator = ScalarEstimator(
-                module=module, preprocessor=env.preprocessor
+                module=module, preprocessor=preprocessor
             )
             if args.loss == "DB":
                 gflownet = DBGFlowNet(
@@ -298,11 +300,12 @@ def main(args):  # noqa: C901
     else:
         sampler = Sampler(estimator=estimator)
     
-    if args.sampler == "topological":
+    if args.sampler != "normal":
         sampler = GrowingTriangleSampler(
             estimator=pf_estimator,
             n_iterations=n_iterations,
-            growth_parameter=args.growth_parameter,
+            topological_type = args.sampler,
+            growth_parameter=args.growth_parameter
         )
     l1_distances = []  # Track l1 distances over time
     validation_steps = []  # Track corresponding steps
@@ -549,7 +552,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Generate plots of true and learned distributions (only works for 2D, incompatible with wandb)",
     )
-    parser.add_argument("--sampler", type=str, default="normal", help="Sampler to use")
+    parser.add_argument(
+        "--sampler",
+        type=str,
+        choices=["large_then_small", "small_then_large", "normal"],
+        default="normal",
+        help="Sampler to use.",
+    )
     args = parser.parse_args()
 
     print(main(args))
