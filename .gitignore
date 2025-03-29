@@ -1,0 +1,6 @@
+reward_settings/
+rewards_vs_l1dist_different/
+rewards_vs_l1dist_large_small/
+wandb/
+__pycache__/
+.DS_Store
