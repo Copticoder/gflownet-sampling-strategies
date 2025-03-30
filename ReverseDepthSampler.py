@@ -9,7 +9,17 @@ from gfn.utils.handlers import (
     has_conditioning_exception_handler,
     no_conditioning_exception_handler,
 )
-
+"""
+ReverseDepth Sampler logic: 
+-> At the first training iteration, we are going to sample with masking the exit action until the environment says that there is no available action except the exit action.
+-> at the end of the first iteration, take all the trajectories and for each state in the trajectories, we are going to calculate the reverse depth. Reverse depth is defined as the maximum depth of the trajectory minus the depth of the state.
+-> use the calculated reverse depth for each state as the ground truth for the reverse depth scalar estimator and train the scalar estimator with mean squared error loss.
+-> we have the reverse_depth_threshold variable set as 0 and it grows with the training iterations. Only the exit action is allowed for states that are at the reverse depth threshold.
+The reverse depth threshold is incremented every time the iteration counter is divisible by (growth_parameter*n_iterations)/((env.ndim*env.height)-1). The growth parameter is the hyperparameter
+which controls the speed at which the reverse_depth_threshold grows.
+-> use the scalar estimator at the second iteration to calculate the reverse depth for each state on the frontier, mask the exit action for states that are not at the reverse depth threshold.
+-> repeat the process 
+"""
 class ReverseDepthSampler(Sampler):
     def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int, reverse_depth_boolean: bool,growth_parameter: int = 0.1, reverse_depth_estimator: ScalarEstimator | None = None):
         super().__init__(estimator)
@@ -21,9 +31,6 @@ class ReverseDepthSampler(Sampler):
         self.growth_parameter = growth_parameter
         # used to enable/disable topological sampling
         self.reverse_depth_boolean = reverse_depth_boolean
-        # initialize the hash table for the reverse_depth of each state 
-        states_dict = {}
-
     def sample_actions(
         self,
         env: Env,
