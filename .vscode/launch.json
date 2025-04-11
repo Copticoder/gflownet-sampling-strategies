@@ -12,8 +12,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--loss", "TB", "--height", "8", "--R0", "0.0001", "--R1","1","--R2","3"
-             ,"--wandb_project",  "gfn-ter-fm-test", "--ndim", "3"
+            "args": ["--loss", "TB", "--word_size", "1"
             ],
         }
     ]
