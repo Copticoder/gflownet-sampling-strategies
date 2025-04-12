@@ -33,6 +33,7 @@ from gfn.utils.training import validate
 from GrowingTriangleSampler import GrowingTriangleSampler
 from gfn.modules import GFNModule
 from gfn.gflownet import FMGFlowNet
+import os
 def main(args):
     set_seed(args.seed)
     device = torch.device(
@@ -40,7 +41,7 @@ def main(args):
     )
 
     # Setup the Environment.
-    env = HyperGrid(ndim=args.ndim, height=args.height, device=device, calculate_all_states=True, calculate_partition=True)
+    env = HyperGrid(ndim=args.ndim, height=args.height, device=device, calculate_all_states=True, calculate_partition=True, R0=0.00001, R1 = 1, R2=3)
     preprocessor = KHotPreprocessor(height=env.height, ndim=env.ndim)
 
     # Build the GFlowNet.
@@ -76,6 +77,8 @@ def main(args):
     l1_distances = []
     validation_info = {"l1_dist": float("inf")}
     visited_terminating_states = env.states_from_batch_shape((0,))
+    # Get distributions and find global min/max for consistent color scaling.
+    true_dist = env.true_dist_pmf.reshape(env.height, env.height).cpu().numpy()
     for it in (pbar := tqdm(range(args.n_iterations), dynamic_ncols=True)):
         trajectories = sampler.sample_trajectories(
             env,
@@ -90,6 +93,7 @@ def main(args):
 
         optimizer.zero_grad()
         loss = gflownet.loss(env, trajectories, recalculate_all_logprobs=False)
+
         loss.backward()
         optimizer.step()
         if (it + 1) % args.validation_interval == 0:
@@ -104,33 +108,35 @@ def main(args):
             plot_results(
                 env,
                 gflownet,
+                true_dist,
                 l1_distances,
+                sampler=args.sampler,
             )
         pbar.set_postfix({"loss": loss.item()})
 
-def plot_results(env, gflownet, l1_distances):
-    # Create a figure with two rows:
-    #   - The top row has two columns for the true and learned distributions.
-    #   - The bottom row spans both columns for the L1 distances plot.
-    fig = plt.figure(constrained_layout=True, figsize=(12, 8))
-    gs = GridSpec(2, 2, figure=fig)
+def plot_results(env, gflownet,true_dist, l1_distances, sampler="normal"):
+    # Create directory for saving plots.
+    save_dir = f"test_{sampler}_{env.height}_{env.ndim}"
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Create a figure with 1 row and 3 columns.
+    fig = plt.figure(constrained_layout=True, figsize=(18, 6))
+    gs = GridSpec(1, 3, figure=fig)
 
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[0, 1])
-    ax3 = fig.add_subplot(gs[1, :])
+    ax3 = fig.add_subplot(gs[0, 2])
 
-    # Get distributions and find global min/max for consistent color scaling
-    true_dist = env.true_dist_pmf.reshape(env.height, env.height).cpu().numpy()
     learned_dist = get_exact_P_T(env, gflownet).reshape(env.height, env.height).numpy()
 
-    # Ensure consistent orientation by transposing
+    # Ensure consistent orientation by transposing.
     true_dist = true_dist.T
     learned_dist = learned_dist.T
 
     vmin = min(true_dist.min(), learned_dist.min())
     vmax = max(true_dist.max(), learned_dist.max())
 
-    # True reward distribution
+    # True reward distribution.
     im1 = ax1.imshow(
         true_dist,
         cmap="viridis",
@@ -141,7 +147,7 @@ def plot_results(env, gflownet, l1_distances):
     )
     ax1.set_title("True Distribution")
 
-    # Learned reward distribution
+    # Learned reward distribution.
     im2 = ax2.imshow(
         learned_dist,
         cmap="viridis",
@@ -155,14 +161,16 @@ def plot_results(env, gflownet, l1_distances):
     # Add a single colorbar for both distribution plots.
     fig.colorbar(im1, ax=[ax1, ax2], orientation="vertical", label="Probability")
 
-    # Plot L1 distances over validation steps in the bottom subplot.
+    # Plot L1 distances over validation steps in the third subplot.
     ax3.plot(l1_distances, marker="o", linestyle="-")
     ax3.set_title("L1 Distances Over Validation Steps")
     ax3.set_xlabel("Validation Step")
     ax3.set_ylabel("L1 Distance")
     
-    plt.show()
-    plt.close()
+    # Save the figure to the specified directory with a unique file name.
+    filename = os.path.join(save_dir, f"results_{len(l1_distances):03d}.png")
+    plt.savefig(filename)
+    plt.close(fig)
 
 def get_exact_P_T(env: HyperGrid, gflownet) -> torch.Tensor:
     r"""Evaluates the exact terminating state distribution P_T for HyperGrid.
