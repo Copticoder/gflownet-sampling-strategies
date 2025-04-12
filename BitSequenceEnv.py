@@ -1,7 +1,7 @@
 import torch
 from typing import Optional
 from gfn.preprocessors import Preprocessor
-
+import math
 from gfn.gym.bitSequence import BitSequence, BitSequencePlus, BitSequenceStates
 
 class BalancedParentheses(BitSequence):
@@ -32,8 +32,6 @@ class BalancedParentheses(BitSequence):
             dummy_action,
             exit_action,
             sf,
-            device_str,
-            preprocessor,
         )
     @staticmethod
     def is_balanced_parentheses(tensor: torch.Tensor) -> torch.Tensor:
@@ -76,3 +74,9 @@ class BalancedParentheses(BitSequence):
 
     def reward(self, states: BitSequenceStates):
         return torch.exp(-self.log_reward(states))
+    
+    @property
+    def log_partition(self) -> float:
+        balanced = math.comb(self.seq_size, self.seq_size// 2) // (self.seq_size// 2 + 1)
+        total_reward = 511 * math.exp(-1.5) + ((2 ** self.seq_size) - 512 - balanced) * math.exp(-10) + balanced
+        return math.log(total_reward)

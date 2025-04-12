@@ -98,7 +98,6 @@ def main(args):
         visited_terminating_states.extend(
             cast(DiscreteStates, trajectories.terminating_states)
         )
-        print(visited_terminating_states)
         optimizer.zero_grad()
         loss = gflownet.loss(env, trajectories, recalculate_all_logprobs=False)
         loss.backward()
