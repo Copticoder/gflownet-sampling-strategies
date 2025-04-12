@@ -12,7 +12,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--loss", "TB", "--word_size", "1"
+            "args": ["--loss", "TB", "--word_size", "1", "--seq_size", "4", "--n_modes", "2", "--n_iterations", "10000"
             ],
         }
     ]

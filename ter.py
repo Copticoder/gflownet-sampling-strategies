@@ -12,7 +12,8 @@ from gfn.utils.common import set_seed
 from gfn.utils.modules import MLP
 from gfn.utils.training import validate
 from gfn.states import DiscreteStates
-
+from gfn.samplers import Sampler
+from GrowingTriangleSampler import GrowingTriangleSampler
 DEFAULT_SEED = 4444
 
 
@@ -88,6 +89,11 @@ def main(args):
     validation_info = {"l1_dist": float("inf")}
     visited_terminating_states = env.states_from_batch_shape((0,))
     gflownet = cast(GFlowNet, gflownet)
+    sampler = Sampler(gflownet)
+    
+    if args.sampler != "normal":
+        sampler = GrowingTriangleSampler(gflownet, n_iterations=args.n_iterations, sampler_type=args.sampler)
+
     for it in (pbar := tqdm(range(args.n_iterations), dynamic_ncols=True)):
         trajectories = gflownet.sample_trajectories(
             env,
@@ -103,25 +109,19 @@ def main(args):
         loss.backward()
         optimizer.step()
         if (it + 1) % 100 == 0:
-            validation_info, _ = validate(
-                env,
-                gflownet,
-                1000,
-                visited_terminating_states,
+            l1_dist = torch.abs(estimated_dist_pmf(gflownet, env) - env.true_dist_pmf).mean().item()
+            print(
+                f"Iteration {it + 1}: L1 distance: {l1_dist:.8f} | Loss: {loss.item():.4f}"
             )
-            print(f"Iter {it + 1}: L1 distance {validation_info['l1_dist']:.8f}")
         pbar.set_postfix({"loss": loss.item()})
 
-    try:
-        return (
-            torch.abs(estimated_dist_pmf(gflownet, env) - env.true_dist_pmf)
-            .mean()
-            .item()
-        )
-    except AttributeError:
-        print(
-            "Training was completed succesfully. However computing the L1 distance is only implemented for TB for now."
-        )
+    # try:
+    #     return (
+    #     )
+    # except AttributeError:
+    #     print(
+    #         "Training was completed succesfully. However computing the L1 distance is only implemented for TB for now."
+    #     )
 
 
 if __name__ == "__main__":
@@ -138,7 +138,12 @@ if __name__ == "__main__":
     parser.add_argument("--word_size", type=int, default=1, help="Word size")
     parser.add_argument("--seq_size", type=int, default=4, help="Sequence size")
     parser.add_argument("--n_modes", type=int, default=2, help="Number of modes")
-
+    parser.add_argument(
+        "--sampler",
+        type=str,
+        default="normal",
+        help="Sampler to use. Can be normal, small_then_large or large_then_small",
+    )
     args = parser.parse_args()
 
     print(main(args))
