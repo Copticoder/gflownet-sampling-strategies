@@ -34,6 +34,36 @@ from GrowingTriangleSampler import GrowingTriangleSampler
 from gfn.modules import GFNModule
 from gfn.gflownet import FMGFlowNet
 import os
+
+def visualize_trajectories(trajectories, env, it, sampler):
+
+    # Only visualize when the environment is 2D.
+    if env.ndim != 2:
+        return
+
+    # Create a new figure.
+    plt.figure()
+    for traj in trajectories:
+        # Assume each trajectory has an attribute 'states'
+        # which is a DiscreteStates instance with a 'tensor' attribute.
+        if hasattr(traj.states, "tensor"):
+            # reduce dimensionality to 2D
+            points = traj.states.tensor.cpu().numpy()[:-1].reshape(-1, 2)
+        else:
+            points = traj.states.cpu().numpy()[:-1].reshape(-1, 2)
+        # Plot the trajectory as a line with markers.
+        plt.plot(points[:, 0], points[:, 1], marker='o', linestyle='-', alpha=0.6)
+
+    plt.title(f"Trajectories at Iteration {it + 1} using {sampler} sampler")
+    plt.xlabel("Dimension 1")
+    plt.ylabel("Dimension 2")
+    plt.xlim(-0.5, env.height - 0.5)
+    plt.ylim(-0.5, env.height - 0.5)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.pause(0.01)
+    plt.close()
+    
 def main(args):
     set_seed(args.seed)
     device = torch.device(
@@ -93,7 +123,8 @@ def main(args):
 
         optimizer.zero_grad()
         loss = gflownet.loss(env, trajectories, recalculate_all_logprobs=False)
-
+        # visualize trajectories on the grid 
+        # visualize_trajectories(trajectories, env, it, args.sampler)
         loss.backward()
         optimizer.step()
         if (it + 1) % args.validation_interval == 0:

@@ -70,7 +70,6 @@ class GrowingTriangleSampler(Sampler):
         if self.topological_type != "normal" and self.triangle_counter <= (env.ndim*(env.height-1)):
             # allow only the exit action for states that are at frontier 
             frontier = self.triangle_counter if self.topological_type == "small_then_large" else (env.ndim*(env.height-1)) - self.triangle_counter
-            
             non_exit_condition = (torch.sum(states.tensor,dim=-1) != torch.full((states.tensor.size(dim=0),),frontier))
             states.forward_masks[non_exit_condition,-1] = False
             # enable exit action for anti-diagonal states
@@ -78,7 +77,7 @@ class GrowingTriangleSampler(Sampler):
             states.forward_masks[exit_condition,-1] = True
             # disable all actions for states that are at the same level as the triangle counter
             states.forward_masks[exit_condition,:-1] = False
-            
+         
         dist = self.estimator.to_probability_distribution(
             states, estimator_output, **policy_kwargs
         )
@@ -105,8 +104,8 @@ class GrowingTriangleSampler(Sampler):
         # get env from args
         Trajectories = super().sample_trajectories(*args, **kwargs)
         env = args[0]
-        self.iteration_counter += 1
         # increment the triangle counter every time the iteration counter is divisible by 
-        if self.iteration_counter > (self.growth_parameter*self.n_iterations * self.triangle_counter)/((env.ndim*env.height)-1):
+        if self.iteration_counter > (self.growth_parameter*self.n_iterations * (self.triangle_counter+1))/((env.ndim*env.height)-1) and self.triangle_counter <= (env.ndim*(env.height-1)):
                 self.triangle_counter += 1
+        self.iteration_counter += 1
         return Trajectories
