@@ -9,9 +9,9 @@ from gfn.utils.handlers import (
     has_conditioning_exception_handler,
     no_conditioning_exception_handler,
 )
-
+import numpy as np
 class GrowingTriangleSampler(Sampler):
-    def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int, topological_type: str,growth_parameter: int = 0.1):
+    def __init__(self, estimator: DiscretePolicyEstimator, n_iterations: int, topological_type: str,growth_parameter: int = 0.1, growth_interval: int = 1, batch_size: int = 16):
         super().__init__(estimator)
         # n_iterations used for growing triangle
         self.n_iterations = n_iterations
@@ -20,6 +20,8 @@ class GrowingTriangleSampler(Sampler):
         self.growth_parameter = growth_parameter
         # used to enable/disable topological sampling
         self.topological_type = topological_type
+        self.growth_interval = growth_interval
+        self.batch_size = batch_size 
     def sample_actions(
         self,
         env: Env,
@@ -104,8 +106,16 @@ class GrowingTriangleSampler(Sampler):
         # get env from args
         Trajectories = super().sample_trajectories(*args, **kwargs)
         env = args[0]
+        original_batch_size = kwargs.get("n")
         # increment the triangle counter every time the iteration counter is divisible by 
-        if self.iteration_counter > (self.growth_parameter*self.n_iterations * (self.triangle_counter+1))/((env.ndim*env.height)-1) and self.triangle_counter <= (env.ndim*(env.height-1)):
-                self.triangle_counter += 1
+        if self.iteration_counter > self.growth_interval * (self.triangle_counter+1) and self.triangle_counter <= (env.ndim*(env.height-1)):
+            # decrease batch size if large then small, increase it if small then large
+            self.batch_size = np.linspace(1, original_batch_size, num=(env.ndim*(env.height-1)))[self.triangle_counter-1] if self.topological_type == "large_then_small" else np.linspace(original_batch_size, 1, num=(env.ndim*(env.height-1)))[self.triangle_counter-1]
+            # floor of batch size
+            self.batch_size = int(self.batch_size)
+            self.triangle_counter += 1
+        
+        if (self.triangle_counter > (env.ndim*(env.height-1))):
+            self.batch_size = original_batch_size
         self.iteration_counter += 1
         return Trajectories

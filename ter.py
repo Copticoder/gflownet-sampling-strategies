@@ -61,7 +61,7 @@ def visualize_trajectories(trajectories, env, it, sampler):
     plt.ylim(-0.5, env.height - 0.5)
     plt.grid(True)
     plt.tight_layout()
-    plt.pause(0.01)
+    plt.pause(0.1)
     plt.close()
     
 def main(args):
@@ -71,7 +71,7 @@ def main(args):
     )
 
     # Setup the Environment.
-    env = HyperGrid(ndim=args.ndim, height=args.height, device=device, calculate_all_states=True, calculate_partition=True, R0=0.00001, R1 = 1, R2=3)
+    env = HyperGrid(ndim=args.ndim, height=args.height, device=device, calculate_all_states=True, calculate_partition=True, R0=0.0001, R1 = 1, R2=3)
     preprocessor = KHotPreprocessor(height=env.height, ndim=env.ndim)
 
     # Build the GFlowNet.
@@ -91,34 +91,36 @@ def main(args):
         module_PB, env.n_actions, preprocessor=preprocessor, is_backward=True
     )
     gflownet = TBGFlowNet(pf=pf_estimator, pb=pb_estimator, logZ=0.0)
-
     # Feed pf to the sampler.
-    sampler = Sampler(estimator=pf_estimator)
-    if args.sampler != "normal":
-        sampler = GrowingTriangleSampler(pf_estimator,n_iterations=args.n_iterations, topological_type=args.sampler)
-
     # Move the gflownet to the GPU.
     gflownet = gflownet.to(device)
-
     # Policy parameters have their own LR. Log Z gets dedicated learning rate
     # (typically higher).
     optimizer = torch.optim.Adam(gflownet.pf_pb_parameters(), lr=args.lr)
     optimizer.add_param_group({"params": gflownet.logz_parameters(), "lr": args.lr_logz})
+    sampler = Sampler(estimator=pf_estimator)
+    if args.sampler != "normal":
+        growth_interval = (args.growth_parameter*args.n_iterations)/((env.ndim*env.height)-1)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=growth_interval, gamma=0.1)
+        sampler = GrowingTriangleSampler(pf_estimator,n_iterations=args.n_iterations, topological_type=args.sampler, growth_interval=growth_interval, batch_size=args.batch_size)
     l1_distances = []
     validation_info = {"l1_dist": float("inf")}
     visited_terminating_states = env.states_from_batch_shape((0,))
     # Get distributions and find global min/max for consistent color scaling.
+    # learning rate scheduler that decreases learning rate by 0.1 every growth_interval iterations  
+    batch_size = args.batch_size
     true_dist = env.true_dist_pmf.reshape(env.height, env.height).cpu().numpy()
     for it in (pbar := tqdm(range(args.n_iterations), dynamic_ncols=True)):
+        
         trajectories = sampler.sample_trajectories(
             env,
-            n=args.batch_size,
+            n=batch_size,
             save_logprobs=True,
             save_estimator_outputs=False,
             epsilon=args.epsilon,
         )
         visited_terminating_states.extend(
-            cast(DiscreteStates, trajectories.terminating_states)
+             cast(DiscreteStates, trajectories.terminating_states)
         )
 
         optimizer.zero_grad()
@@ -127,6 +129,8 @@ def main(args):
         # visualize_trajectories(trajectories, env, it, args.sampler)
         loss.backward()
         optimizer.step()
+        if args.sampler != "normal":
+            scheduler.step()
         if (it + 1) % args.validation_interval == 0:
             validation_info, _ = validate(
                 env,
@@ -147,7 +151,7 @@ def main(args):
 
 def plot_results(env, gflownet,true_dist, l1_distances, sampler="normal"):
     # Create directory for saving plots.
-    save_dir = f"test_{sampler}_{env.height}_{env.ndim}"
+    save_dir = f"test_{sampler}_{env.height}_{env.ndim}_batch_trick"
     os.makedirs(save_dir, exist_ok=True)
 
     # Create a figure with 1 row and 3 columns.
@@ -345,7 +349,7 @@ if __name__ == "__main__":
         "--epsilon", type=float, default=0.1, help="Epsilon for the sampler"
     )
     parser.add_argument("--sampler", type=str, default="normal", help="Sampler type (normal or growing_triangle)")
-    
+    parser.add_argument("--growth_parameter", type=float, default=0.1, help="Growth parameter for the sampler") 
     args = parser.parse_args()
 
     main(args)
