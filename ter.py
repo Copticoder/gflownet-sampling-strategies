@@ -342,9 +342,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     
     parser.add_argument(
-        "--epsilon", type=float, default=0.1, help="Epsilon for the sampler"
+        "--epsilon", type=float, default=0, help="Epsilon for the sampler"
     )
-    parser.add_argument("--sampler", type=str, default="normal", help="Sampler type (normal or growing_triangle)")
+    parser.add_argument("--sampler", type=str, default="normal", help="Sampler type (normal, small_then_large, large_then_small)")
     
     args = parser.parse_args()
 
