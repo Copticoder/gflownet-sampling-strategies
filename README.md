@@ -8,7 +8,7 @@ python -m venv venv
 source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
-Then to run the experiments in the paper, run the bash script
+Then to run the experiments in the blog post, run the bash script
 ```bash
 bash grid_search.sh
 ```
